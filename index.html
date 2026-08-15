@@ -106,6 +106,7 @@
   .set-row.time-type { grid-template-columns:44px 1fr 30px; }
   .set-label { font-size:11px; color:var(--muted); }
   .set-input { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:7px; font-size:13px; width:100%; font-family:'DM Sans',sans-serif; }
+  .set-input::placeholder { color:var(--neon-dim); opacity:0.85; }
   .set-input:focus { outline:none; border-color:var(--neon); }
   .set-check { width:28px; height:28px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--muted); cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center; }
   .set-check.done { background:var(--neon); color:#000; border-color:var(--neon); }
@@ -837,18 +838,18 @@ async function loadLastSession(dayId, slotId) {
   hintEl.innerHTML = `<strong>Last time (${dateStr}${dayLabel ? ', ' + dayLabel : ''}):</strong> ${summary}${last.note ? ` — "${last.note}"` : ''}`;
   hintEl.style.display = 'block';
 
-  // Prefill inputs with last session's numbers so there's less typing — fully editable
+  // Show last session's numbers as light placeholder text — box stays empty, ready to type, no need to clear anything first
   if (!isTime) {
     last.sets.forEach(s => {
       const wEl = document.getElementById(`weight-${slotId}-${s.set}`);
       const rEl = document.getElementById(`reps-${slotId}-${s.set}`);
-      if (wEl && !wEl.value && s.weight) wEl.value = s.weight;
-      if (rEl && !rEl.value && s.reps) rEl.value = s.reps;
+      if (wEl && s.weight) wEl.placeholder = s.weight;
+      if (rEl && s.reps) rEl.placeholder = s.reps;
     });
   } else {
     last.sets.forEach(s => {
       const dEl = document.getElementById(`duration-${slotId}-${s.set}`);
-      if (dEl && !dEl.value && s.duration) dEl.value = s.duration;
+      if (dEl && s.duration) dEl.placeholder = s.duration;
     });
   }
 }
