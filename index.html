@@ -72,14 +72,15 @@
   .exercise-meta { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .sets-badge { font-size:11px; color:#000; background:var(--neon); padding:2px 8px; border-radius:20px; font-weight:700; }
   .type-badge { font-size:9px; color:var(--muted); border:1px solid var(--border); padding:2px 7px; border-radius:20px; text-transform:uppercase; }
-  .slot-controls { display:flex; gap:6px; align-items:center; flex-shrink:0; }
+  .slot-controls { display:flex; gap:14px; align-items:center; flex-shrink:0; }
   .icon-btn {
-    width:28px; height:28px; border-radius:6px; border:1px solid var(--border); background:var(--bg);
+    width:30px; height:30px; border-radius:6px; border:1px solid var(--border); background:var(--bg);
     color:var(--muted); cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center;
   }
   .icon-btn.linked { color:var(--neon); border-color:var(--neon); }
-  .icon-btn.remove:active { color:var(--danger); }
-  .chevron { color:var(--muted); font-size:16px; transition:transform .2s ease; cursor:pointer; }
+  .icon-btn.remove { color:#8a4444; border-color:#3a2020; margin-left:4px; }
+  .icon-btn.remove:active { color:var(--danger); border-color:var(--danger); }
+  .chevron { color:var(--muted); font-size:16px; transition:transform .2s ease; cursor:pointer; margin-left:2px; }
   .exercise-card.open .chevron { transform:rotate(180deg); }
 
   .exercise-body { max-height:0; overflow:hidden; transition:max-height .3s ease; }
@@ -572,6 +573,9 @@ async function addSlot(dayId, dayIndex) {
 }
 
 async function removeSlot(dayId, dayIndex, slotId) {
+  const slot = dayConfigs[dayId].find(s => s.slotId === slotId);
+  const ex = getExercise(slot.exerciseId);
+  if (!confirm(`Remove "${ex.name}" from this day?\n\nIts logged history is kept and will reappear if you add it back — this only removes it from today's list.`)) return;
   dayConfigs[dayId] = dayConfigs[dayId].filter(s => s.slotId !== slotId);
   await saveDayConfig(dayId);
   renderDay(dayIndex);
@@ -767,8 +771,8 @@ async function saveSession(dayId, slotId) {
   }
 
   const noteText = document.getElementById(`notes-${slotId}`).value.trim();
-  const entry = { date:new Date().toISOString(), exerciseId:slot.exerciseId, exerciseName:ex.name, exerciseType:ex.type, sets, note:noteText };
-  const key = `log:${dayId}:${slotId}`;
+  const entry = { date:new Date().toISOString(), dayId, sets, note:noteText };
+  const key = `log:${slot.exerciseId}`;
 
   try {
     let existing = [];
@@ -802,8 +806,8 @@ async function saveSession(dayId, slotId) {
   }
 }
 
-async function getSlotHistory(dayId, slotId) {
-  const key = `log:${dayId}:${slotId}`;
+async function getExerciseHistory(exerciseId) {
+  const key = `log:${exerciseId}`;
   try {
     const result = await storage.get(key);
     if (result && result.value) return JSON.parse(result.value);
@@ -811,23 +815,26 @@ async function getSlotHistory(dayId, slotId) {
   return [];
 }
 
+
 async function loadLastSession(dayId, slotId) {
   const slot = findSlot(dayId, slotId);
-  const history = await getSlotHistory(dayId, slotId);
-  const matching = history.filter(e => e.exerciseId === slot.exerciseId).sort((a,b) => new Date(b.date) - new Date(a.date));
+  const history = await getExerciseHistory(slot.exerciseId);
+  const sorted = [...history].sort((a,b) => new Date(b.date) - new Date(a.date));
   const hintEl = document.getElementById(`lastsession-${slotId}`);
   if (!hintEl) return;
 
-  if (matching.length === 0) {
+  if (sorted.length === 0) {
     hintEl.style.display = 'none';
     return;
   }
 
-  const last = matching[0];
+  const ex = getExercise(slot.exerciseId);
+  const isTime = ex.type === 'time';
+  const last = sorted[0];
   const dateStr = new Date(last.date).toLocaleDateString('en-GB', { day:'numeric', month:'short' });
-  const isTime = last.exerciseType === 'time';
+  const dayLabel = DAY_LABELS[last.dayId] || '';
   const summary = last.sets.map(s => isTime ? `${s.duration}min` : (s.weight && s.reps ? `${s.weight}kg×${s.reps}` : (s.reps ? `${s.reps} reps` : '—'))).join(', ');
-  hintEl.innerHTML = `<strong>Last time (${dateStr}):</strong> ${summary}${last.note ? ` — "${last.note}"` : ''}`;
+  hintEl.innerHTML = `<strong>Last time (${dateStr}${dayLabel ? ', ' + dayLabel : ''}):</strong> ${summary}${last.note ? ` — "${last.note}"` : ''}`;
   hintEl.style.display = 'block';
 
   // Prefill inputs with last session's numbers so there's less typing — fully editable
@@ -847,20 +854,23 @@ async function loadLastSession(dayId, slotId) {
 }
 
 async function renderSlotHistory(dayId, slotId) {
-  const history = await getSlotHistory(dayId, slotId);
+  const slot = findSlot(dayId, slotId);
+  const history = await getExerciseHistory(slot.exerciseId);
+  const ex = getExercise(slot.exerciseId);
+  const isTime = ex.type === 'time';
   const container = document.getElementById(`history-${slotId}`);
   if (history.length === 0) { container.innerHTML = '<div class="no-data">No sessions logged yet</div>'; return; }
   const sorted = [...history].sort((a,b) => new Date(b.date) - new Date(a.date));
-  container.innerHTML = sorted.slice(0,10).map(entry => {
+  container.innerHTML = sorted.slice(0,15).map(entry => {
     const dateStr = new Date(entry.date).toLocaleDateString('en-GB', { day:'numeric', month:'short' });
-    const isTime = entry.exerciseType === 'time';
     const setsStr = entry.sets.map(s => {
       if (isTime) return `${s.duration}min`;
       let base = s.weight && s.reps ? `${s.weight}kg×${s.reps}` : (s.reps ? `${s.reps} reps` : '—');
       if (s.drops && s.drops.length) base += ' → drop ' + s.drops.map(d => `${d.weight||''}kg×${d.reps||''}`).join(', ');
       return base;
     }).join(', ');
-    const variantHtml = `<div class="history-variant">${entry.exerciseName}</div>`;
+    const dayLabel = DAY_LABELS[entry.dayId] || '';
+    const variantHtml = dayLabel ? `<div class="history-variant">${dayLabel}</div>` : '';
     const noteHtml = entry.note ? `<div class="history-note">"${entry.note}"</div>` : '';
     return `<div class="history-item-wrap">${variantHtml}<div class="history-item"><span class="history-date">${dateStr}</span><span>${setsStr}</span></div>${noteHtml}</div>`;
   }).join('');
@@ -870,23 +880,23 @@ async function renderChart(dayId, slotId) {
   const canvasId = `chart-${slotId}`;
   const canvas = document.getElementById(canvasId);
   const slot = findSlot(dayId, slotId);
-  const history = await getSlotHistory(dayId, slotId);
-  const matching = history.filter(e => e.exerciseId === slot.exerciseId);
+  const ex = getExercise(slot.exerciseId);
+  const isTime = ex.type === 'time';
+  const history = await getExerciseHistory(slot.exerciseId);
 
   if (chartInstances[canvasId]) chartInstances[canvasId].destroy();
   const existingMsg = canvas.parentElement.querySelector('.no-data');
   if (existingMsg) existingMsg.remove();
 
-  if (matching.length === 0) {
+  if (history.length === 0) {
     const msg = document.createElement('div');
     msg.className = 'no-data';
-    msg.textContent = 'No data yet for this variation — log a session to see trends';
+    msg.textContent = 'No data yet for this exercise — log a session to see trends';
     canvas.parentElement.appendChild(msg);
     return;
   }
 
-  const isTime = matching[0].exerciseType === 'time';
-  const sorted = [...matching].sort((a,b) => new Date(a.date) - new Date(b.date));
+  const sorted = [...history].sort((a,b) => new Date(a.date) - new Date(b.date));
   const labels = sorted.map(e => new Date(e.date).toLocaleDateString('en-GB', { day:'numeric', month:'short' }));
   const values = sorted.map(e => {
     if (isTime) {
@@ -920,25 +930,25 @@ async function loadAllHistory() {
   }
 
   listEl.innerHTML = '<div class="no-data">Loading...</div>';
-  const relevantDays = currentHistoryFilter === 'all' ? DAY_IDS : [currentHistoryFilter];
   const allEntries = [];
 
-  for (const dayId of relevantDays) {
-    for (const slot of dayConfigs[dayId]) {
-      const key = `log:${dayId}:${slot.slotId}`;
-      try {
-        const result = await storage.get(key);
-        if (result && result.value) {
-          JSON.parse(result.value).forEach(entry => allEntries.push({ dayId, slotId:slot.slotId, ...entry }));
-        }
-      } catch (e) {}
-    }
+  // Pull from every exercise in the full library — history is exercise-scoped now, not tied to current day assignment
+  for (const ex of ALL_EXERCISES) {
+    const key = `log:${ex.id}`;
+    try {
+      const result = await storage.get(key);
+      if (result && result.value) {
+        JSON.parse(result.value).forEach(entry => allEntries.push({ exerciseId: ex.id, exerciseName: ex.name, exerciseType: ex.type, ...entry }));
+      }
+    } catch (e) {}
   }
 
-  if (allEntries.length === 0) { listEl.innerHTML = '<div class="no-data">No workouts logged yet</div>'; return; }
+  const filteredEntries = currentHistoryFilter === 'all' ? allEntries : allEntries.filter(e => e.dayId === currentHistoryFilter);
+
+  if (filteredEntries.length === 0) { listEl.innerHTML = '<div class="no-data">No workouts logged yet</div>'; return; }
 
   const byDate = {};
-  allEntries.forEach(e => {
+  filteredEntries.forEach(e => {
     const dateKey = new Date(e.date).toISOString().split('T')[0];
     if (!byDate[dateKey]) byDate[dateKey] = [];
     byDate[dateKey].push(e);
@@ -1028,6 +1038,73 @@ function showDay(index) {
 }
 
 /* ---------- Boot ---------- */
+/* ---------- One-time recovery: old slot-based logs → new exercise-based logs ---------- */
+async function checkForOldData() {
+  let foundCount = 0;
+  for (const dayId of DAY_IDS) {
+    for (const slot of dayConfigs[dayId]) {
+      const oldKey = `log:${dayId}:${slot.slotId}`;
+      const result = await storage.get(oldKey);
+      if (result && result.value) {
+        try {
+          const entries = JSON.parse(result.value);
+          if (entries.length) foundCount += entries.length;
+        } catch (e) {}
+      }
+    }
+  }
+  if (foundCount > 0) showRecoveryBanner(foundCount);
+}
+
+function showRecoveryBanner(count) {
+  const banner = document.createElement('div');
+  banner.id = 'recovery-banner';
+  banner.style.cssText = 'background:#131613;border:1px solid #39ff14;border-radius:10px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#eafcea;';
+  banner.innerHTML = `
+    <div style="margin-bottom:10px;"><strong style="color:#39ff14;">Old workout data found</strong><br>
+    ${count} logged set${count === 1 ? '' : 's'} from before the last update — tap below to bring it into your history.</div>
+    <button onclick="runRecovery()" style="width:100%;padding:10px;background:#39ff14;color:#000;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;">Recover My Data</button>
+  `;
+  document.querySelector('header').insertAdjacentElement('afterend', banner);
+}
+
+async function runRecovery() {
+  const banner = document.getElementById('recovery-banner');
+  banner.innerHTML = '<div style="color:#39ff14;">Recovering...</div>';
+
+  let migratedCount = 0;
+  for (const dayId of DAY_IDS) {
+    for (const slot of dayConfigs[dayId]) {
+      const oldKey = `log:${dayId}:${slot.slotId}`;
+      const oldResult = await storage.get(oldKey);
+      if (!oldResult || !oldResult.value) continue;
+
+      let oldEntries;
+      try { oldEntries = JSON.parse(oldResult.value); } catch (e) { continue; }
+      if (!oldEntries.length) continue;
+
+      const newKey = `log:${slot.exerciseId}`;
+      let newEntries = [];
+      const newResult = await storage.get(newKey);
+      if (newResult && newResult.value) {
+        try { newEntries = JSON.parse(newResult.value); } catch (e) {}
+      }
+
+      const existingDates = new Set(newEntries.map(e => e.date));
+      oldEntries.forEach(old => {
+        if (existingDates.has(old.date)) return; // already migrated, skip duplicate
+        newEntries.push({ date: old.date, dayId, sets: old.sets, note: old.note || '' });
+        migratedCount++;
+      });
+
+      await storage.set(newKey, JSON.stringify(newEntries));
+    }
+  }
+
+  banner.innerHTML = `<div style="color:#39ff14;">✓ Recovered ${migratedCount} logged set${migratedCount === 1 ? '' : 's'}. Reopen any exercise to see it.</div>`;
+  setTimeout(() => banner.remove(), 4000);
+}
+
 async function boot() {
   await loadLibraryFromStorage();
   for (let i = 0; i < DAY_IDS.length; i++) {
@@ -1036,6 +1113,7 @@ async function boot() {
   for (let i = 0; i < DAY_IDS.length; i++) {
     await renderDay(i);
   }
+  await checkForOldData();
 }
 boot();
 </script>
