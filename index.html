@@ -1040,24 +1040,32 @@ function showDay(index) {
 
 /* ---------- Boot ---------- */
 /* ---------- One-time recovery: old slot-based logs → new exercise-based logs ---------- */
+function getAllOldFormatKeys() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    // old format: log:day1:slotId, log:day2:slotId, etc — scans everything, including
+    // slots that no longer exist (e.g. accidentally removed), not just current ones
+    if (k && /^log:day[1-6]:/.test(k)) keys.push(k);
+  }
+  return keys;
+}
+
 async function checkForOldData() {
+  const oldKeys = getAllOldFormatKeys();
   let foundCount = 0;
-  for (const dayId of DAY_IDS) {
-    for (const slot of dayConfigs[dayId]) {
-      const oldKey = `log:${dayId}:${slot.slotId}`;
-      const result = await storage.get(oldKey);
-      if (result && result.value) {
-        try {
-          const entries = JSON.parse(result.value);
-          if (entries.length) foundCount += entries.length;
-        } catch (e) {}
-      }
-    }
+  for (const key of oldKeys) {
+    try {
+      const entries = JSON.parse(localStorage.getItem(key) || '[]');
+      foundCount += entries.length;
+    } catch (e) {}
   }
   if (foundCount > 0) showRecoveryBanner(foundCount);
 }
 
 function showRecoveryBanner(count) {
+  const existing = document.getElementById('recovery-banner');
+  if (existing) existing.remove();
   const banner = document.createElement('div');
   banner.id = 'recovery-banner';
   banner.style.cssText = 'background:#131613;border:1px solid #39ff14;border-radius:10px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#eafcea;';
@@ -1073,37 +1081,43 @@ async function runRecovery() {
   const banner = document.getElementById('recovery-banner');
   banner.innerHTML = '<div style="color:#39ff14;">Recovering...</div>';
 
+  const oldKeys = getAllOldFormatKeys();
   let migratedCount = 0;
-  for (const dayId of DAY_IDS) {
-    for (const slot of dayConfigs[dayId]) {
-      const oldKey = `log:${dayId}:${slot.slotId}`;
-      const oldResult = await storage.get(oldKey);
-      if (!oldResult || !oldResult.value) continue;
+  let skippedNoId = 0;
 
-      let oldEntries;
-      try { oldEntries = JSON.parse(oldResult.value); } catch (e) { continue; }
-      if (!oldEntries.length) continue;
+  for (const oldKey of oldKeys) {
+    let oldEntries;
+    try { oldEntries = JSON.parse(localStorage.getItem(oldKey) || '[]'); } catch (e) { continue; }
+    if (!oldEntries.length) continue;
 
-      const newKey = `log:${slot.exerciseId}`;
+    const dayMatch = oldKey.match(/^log:(day[1-6]):/);
+    const dayIdFromKey = dayMatch ? dayMatch[1] : null;
+
+    for (const old of oldEntries) {
+      // Old entries self-recorded which exercise they were for — use that directly,
+      // so this works even if the slot itself was later deleted
+      const exerciseId = old.exerciseId || old.exercise_id;
+      if (!exerciseId) { skippedNoId++; continue; }
+
+      const newKey = `log:${exerciseId}`;
       let newEntries = [];
-      const newResult = await storage.get(newKey);
-      if (newResult && newResult.value) {
-        try { newEntries = JSON.parse(newResult.value); } catch (e) {}
-      }
+      try {
+        const existing = localStorage.getItem(newKey);
+        if (existing) newEntries = JSON.parse(existing);
+      } catch (e) {}
 
-      const existingDates = new Set(newEntries.map(e => e.date));
-      oldEntries.forEach(old => {
-        if (existingDates.has(old.date)) return; // already migrated, skip duplicate
-        newEntries.push({ date: old.date, dayId, sets: old.sets, note: old.note || '' });
-        migratedCount++;
-      });
+      const alreadyThere = newEntries.some(e => e.date === old.date);
+      if (alreadyThere) continue;
 
-      await storage.set(newKey, JSON.stringify(newEntries));
+      newEntries.push({ date: old.date, dayId: dayIdFromKey || old.dayId || null, sets: old.sets, note: old.note || '' });
+      migratedCount++;
+      localStorage.setItem(newKey, JSON.stringify(newEntries));
     }
   }
 
-  banner.innerHTML = `<div style="color:#39ff14;">✓ Recovered ${migratedCount} logged set${migratedCount === 1 ? '' : 's'}. Reopen any exercise to see it.</div>`;
-  setTimeout(() => banner.remove(), 4000);
+  const skippedNote = skippedNoId > 0 ? ` (${skippedNoId} couldn't be matched to an exercise)` : '';
+  banner.innerHTML = `<div style="color:#39ff14;">✓ Recovered ${migratedCount} logged set${migratedCount === 1 ? '' : 's'}${skippedNote}. Reopen any exercise to see it.</div>`;
+  setTimeout(() => banner.remove(), 5000);
 }
 
 async function boot() {
